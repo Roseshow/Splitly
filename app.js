@@ -125,7 +125,7 @@ async function addExpense() {
   }
 
   const record = {
-    desc, amount, date, note,
+    description: desc, amount, date, note,
     cat_emoji: selectedCat.emoji,
     cat_name: selectedCat.name,
     paid_by: selectedPaidBy,
@@ -231,7 +231,7 @@ function renderList() {
     <div class="exp-item">
       <div class="exp-emoji">${e.cat_emoji}</div>
       <div class="exp-body">
-        <div class="exp-title">${e.desc}</div>
+        <div class="exp-title">${e.description}</div>
         <div class="exp-sub">${e.cat_name} · ${e.date}${e.note ? ' · ' + e.note : ''}</div>
       </div>
       <div class="exp-right">
