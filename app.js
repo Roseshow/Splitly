@@ -73,6 +73,7 @@ function showApp() {
   document.getElementById('app-screen').classList.remove('hidden');
   renderPaidByPills();
   renderCatPills();
+  updateSplitLabels();
   setTodayDate();
   loadExpenses();
 
@@ -196,6 +197,15 @@ function selectPaidBy(name) {
   selectedPaidBy = name;
   renderPaidByPills();
   updateSplitHint();
+}
+
+function updateSplitLabels() {
+  const me = cfg.me || 'Me';
+  const partner = cfg.partner || 'Partner';
+  const btnMe = document.getElementById('split-btn-me');
+  const btnPartner = document.getElementById('split-btn-partner');
+  if (btnMe) btnMe.textContent = me + ' owes all';
+  if (btnPartner) btnPartner.textContent = partner + ' owes all';
 }
 
 // ── SPLIT MODE ───────────────────────────────────────────
@@ -412,6 +422,7 @@ function closeSettings() {
   localStorage.setItem('splitly_cfg', JSON.stringify(cfg));
   renderPaidByPills();
   renderCatPills();
+  updateSplitLabels();
   renderSplit();
   document.getElementById('settings-modal').classList.add('hidden');
 }
