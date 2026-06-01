@@ -9,7 +9,9 @@ let splitMode = 'equal';
 
 const DEFAULT_CATS = [
   { emoji: '🍽️', name: 'Dining' },
+  { emoji: '🧃', name: 'Snacks' },
   { emoji: '🛒', name: 'Groceries' },
+  { emoji: '🏡', name: 'Household' },
   { emoji: '🚇', name: 'Transport' },
   { emoji: '🏠', name: 'Home' },
   { emoji: '🎉', name: 'Fun' },
@@ -156,7 +158,21 @@ function renderCatPills() {
   wrap.innerHTML = categories.map((c, i) => `
     <button class="cat-pill ${selectedCat && selectedCat.name===c.name ? 'active' : ''}"
       onclick="selectCat(${i})">${c.emoji} ${c.name}</button>
-  `).join('');
+  `).join('') + `
+    <button class="cat-pill cat-pill-add" onclick="quickAddCat()" title="Add category">＋</button>
+  `;
+}
+
+function quickAddCat() {
+  const emoji = prompt('Enter an emoji for the category:');
+  if (!emoji) return;
+  const name = prompt('Enter the category name:');
+  if (!name || !name.trim()) return;
+  categories.push({ emoji: emoji.trim(), name: name.trim() });
+  cfg.categories = categories;
+  localStorage.setItem('splitly_cfg', JSON.stringify(cfg));
+  renderCatPills();
+  renderCatSettings();
 }
 
 function selectCat(i) {

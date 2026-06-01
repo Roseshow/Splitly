@@ -322,3 +322,11 @@ html, body {
 .cat-settings-name { flex: 1; font-size: 14px; }
 .add-cat-row { display: flex; gap: 8px; }
 .emoji-input { width: 52px !important; text-align: center; font-size: 18px; }
+
+.cat-pill-add {
+  border-style: dashed;
+  color: var(--ink3);
+  font-size: 16px;
+  padding: 8px 16px;
+}
+.cat-pill-add:active { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
