@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Splitly" />
+<link rel="apple-touch-icon" href="icon.png" />
+<title>Splitly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="setup-screen" class="screen">
+  <div class="setup-inner">
+    <div class="logo-mark">S</div>
+    <h1 class="app-title">Splitly</h1>
+    <p class="setup-sub">Your shared expense journal</p>
+    <div class="setup-card">
+      <label>Supabase project URL</label>
+      <input id="sb-url" type="url" placeholder="https://xxxx.supabase.co" />
+      <label>Supabase anon key</label>
+      <input id="sb-key" type="text" placeholder="eyJ..." />
+      <label>Your name</label>
+      <input id="my-name" type="text" placeholder="e.g. Sofia" maxlength="20" />
+      <label>Partner's name</label>
+      <input id="partner-name" type="text" placeholder="e.g. Marco" maxlength="20" />
+      <button class="btn-primary" onclick="setupApp()">Get started</button>
+      <p id="setup-err" class="err-msg"></p>
+    </div>
+  </div>
+</div>
+
+<div id="app-screen" class="screen hidden">
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo-sm">S</span>
+      <span class="app-name">Splitly</span>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn" onclick="openSettings()" aria-label="Settings">⚙</button>
+    </div>
+  </header>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="add" onclick="switchTab('add')">
+      <span class="nav-icon">＋</span>
+      <span class="nav-label">Add</span>
+    </button>
+    <button class="nav-btn" data-tab="expenses" onclick="switchTab('expenses')">
+      <span class="nav-icon">≡</span>
+      <span class="nav-label">Expenses</span>
+    </button>
+    <button class="nav-btn" data-tab="split" onclick="switchTab('split')">
+      <span class="nav-icon">⇄</span>
+      <span class="nav-label">Split</span>
+    </button>
+    <button class="nav-btn" data-tab="summary" onclick="switchTab('summary')">
+      <span class="nav-icon">◫</span>
+      <span class="nav-label">Summary</span>
+    </button>
+  </nav>
+
+  <main class="content">
+
+    <!-- ADD TAB -->
+    <section id="tab-add" class="tab-section active">
+      <h2 class="section-title">New expense</h2>
+
+      <div class="field-group">
+        <input id="f-desc" class="big-input" type="text" placeholder="What was it for?" maxlength="80" />
+      </div>
+
+      <div class="field-group">
+        <div class="amount-wrap">
+          <span class="currency-sym">€</span>
+          <input id="f-amount" class="amount-input" type="number" inputmode="decimal" placeholder="0.00" step="0.01" min="0" />
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Category</label>
+        <div class="cat-scroll" id="cat-scroll"></div>
+      </div>
+
+      <div class="field-group two-col">
+        <div>
+          <label class="field-label">Paid by</label>
+          <div class="pill-select" id="paidby-pills"></div>
+        </div>
+        <div>
+          <label class="field-label">Date</label>
+          <input id="f-date" class="field-input" type="date" />
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Split method</label>
+        <div class="split-tabs">
+          <button class="split-tab active" data-split="equal" onclick="setSplitMode('equal')">50 / 50</button>
+          <button class="split-tab" data-split="custom" onclick="setSplitMode('custom')">Custom €</button>
+          <button class="split-tab" data-split="me" onclick="setSplitMode('me')">I owe all</button>
+          <button class="split-tab" data-split="partner" onclick="setSplitMode('partner')">They owe all</button>
+        </div>
+        <div id="custom-split-wrap" class="custom-split hidden">
+          <label class="field-label" id="custom-split-label">Amount I owe</label>
+          <div class="amount-wrap small">
+            <span class="currency-sym">€</span>
+            <input id="f-custom-split" type="number" inputmode="decimal" class="amount-input small" placeholder="0.00" step="0.01" min="0" />
+          </div>
+          <p class="split-hint" id="split-hint"></p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <input id="f-note" class="field-input" type="text" placeholder="Note (optional)" maxlength="100" />
+      </div>
+
+      <button class="btn-primary full" onclick="addExpense()">Add expense</button>
+      <div id="add-toast" class="toast hidden">✓ Saved!</div>
+    </section>
+
+    <!-- EXPENSES TAB -->
+    <section id="tab-expenses" class="tab-section hidden">
+      <div class="list-header">
+        <h2 class="section-title" style="margin:0">Expenses</h2>
+        <select id="filter-month" class="mini-select" onchange="renderList()">
+          <option value="all">All time</option>
+        </select>
+      </div>
+      <div id="expense-list" class="expense-list"></div>
+    </section>
+
+    <!-- SPLIT TAB -->
+    <section id="tab-split" class="tab-section hidden">
+      <h2 class="section-title">Who owes who</h2>
+      <div id="split-content"></div>
+    </section>
+
+    <!-- SUMMARY TAB -->
+    <section id="tab-summary" class="tab-section hidden">
+      <div class="list-header">
+        <h2 class="section-title" style="margin:0">Monthly summary</h2>
+        <select id="summary-month-sel" class="mini-select" onchange="renderSummary()"></select>
+      </div>
+      <div id="summary-content"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div id="settings-modal" class="modal-overlay hidden" onclick="closeSettingsOutside(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Settings</h3>
+      <button class="icon-btn" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field-label">Your name</label>
+      <input id="s-myname" class="field-input" type="text" maxlength="20" />
+      <label class="field-label" style="margin-top:12px">Partner's name</label>
+      <input id="s-partnername" class="field-input" type="text" maxlength="20" />
+
+      <div class="section-divider"></div>
+      <label class="field-label">Categories</label>
+      <div id="cat-list-settings"></div>
+      <div class="add-cat-row">
+        <input id="new-cat-emoji" class="field-input emoji-input" type="text" placeholder="🏷" maxlength="2" />
+        <input id="new-cat-name" class="field-input" type="text" placeholder="Category name" maxlength="30" />
+        <button class="btn-sm" onclick="addCategory()">Add</button>
+      </div>
+
+      <div class="section-divider"></div>
+      <button class="btn-danger full" onclick="resetApp()">Reset & disconnect</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
