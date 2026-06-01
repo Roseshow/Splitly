@@ -39,6 +39,7 @@
 </div>
 
 <div id="app-screen" class="screen hidden">
+
   <header class="topbar">
     <div class="topbar-left">
       <span class="logo-sm">S</span>
@@ -135,6 +136,26 @@
     </section>
 
   </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="add" onclick="switchTab('add')">
+      <span class="nav-icon">＋</span>
+      <span class="nav-label">Add</span>
+    </button>
+    <button class="nav-btn" data-tab="expenses" onclick="switchTab('expenses')">
+      <span class="nav-icon">≡</span>
+      <span class="nav-label">Expenses</span>
+    </button>
+    <button class="nav-btn" data-tab="split" onclick="switchTab('split')">
+      <span class="nav-icon">⇄</span>
+      <span class="nav-label">Split</span>
+    </button>
+    <button class="nav-btn" data-tab="summary" onclick="switchTab('summary')">
+      <span class="nav-icon">◫</span>
+      <span class="nav-label">Summary</span>
+    </button>
+  </nav>
+
 </div>
 
 <!-- SETTINGS MODAL -->
