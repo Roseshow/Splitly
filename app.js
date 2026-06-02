@@ -114,18 +114,28 @@ async function addExpense() {
   if (!selectedPaidBy) { alert('Please select who paid.'); return; }
   if (!date) { alert('Please select a date.'); return; }
 
-  let myShare = amount / 2;
+  const me = cfg.me;
+  const partner = cfg.partner;
+
+  // Calculate share for the person logging (cfg.me) and partner
+  // We store shares keyed by actual names so both phones calculate correctly
+  let loggerShare = amount / 2;
   if (splitMode === 'custom') {
     const customVal = parseFloat(document.getElementById('f-custom-split').value);
     if (isNaN(customVal) || customVal < 0 || customVal > amount) {
       alert('Custom split amount must be between 0 and the total.'); return;
     }
-    myShare = customVal;
+    loggerShare = customVal;
   } else if (splitMode === 'me') {
-    myShare = amount;
+    loggerShare = amount;
   } else if (splitMode === 'partner') {
-    myShare = 0;
+    loggerShare = 0;
   }
+
+  // Store shares by actual person name — person logging is cfg.me, other is cfg.partner
+  const shares = {};
+  shares[me] = parseFloat(loggerShare.toFixed(2));
+  shares[partner] = parseFloat((amount - loggerShare).toFixed(2));
 
   const record = {
     description: desc, amount, date, note,
@@ -133,7 +143,7 @@ async function addExpense() {
     cat_name: selectedCat.name,
     paid_by: selectedPaidBy,
     split_mode: splitMode,
-    my_share: parseFloat(myShare.toFixed(2)),
+    share_data: JSON.stringify(shares),
   };
 
   const { error } = await sb.from('expenses').insert([record]);
@@ -275,16 +285,41 @@ async function deleteExpense(id) {
 }
 
 // ── SPLIT SECTION ─────────────────────────────────────────
+function getShares(e) {
+  // Parse share_data JSON — fallback to equal split if missing (old records)
+  const a = parseFloat(e.amount);
+  const me = cfg.me;
+  const partner = cfg.partner;
+  if (e.share_data) {
+    try {
+      const d = typeof e.share_data === 'string' ? JSON.parse(e.share_data) : e.share_data;
+      // Try exact name match first, then case-insensitive
+      const meShare = d[me] !== undefined ? d[me] :
+        Object.entries(d).find(([k]) => k.toLowerCase() === me.toLowerCase())?.[1] ?? a / 2;
+      return { [me]: parseFloat(meShare), [partner]: parseFloat((a - meShare).toFixed(2)) };
+    } catch(err) {}
+  }
+  // Legacy: fall back to my_share if share_data missing
+  if (e.my_share !== undefined) {
+    const myShare = parseFloat(e.my_share);
+    return { [me]: myShare, [partner]: parseFloat((a - myShare).toFixed(2)) };
+  }
+  return { [me]: a / 2, [partner]: a / 2 };
+}
+
 function calcBalance(list) {
   const me = cfg.me || 'Me';
+  const partner = cfg.partner || 'Partner';
   let iOwe = 0, theyOwe = 0;
   list.forEach(e => {
-    const a = parseFloat(e.amount);
-    const myShare = parseFloat(e.my_share);
-    const partnerShare = a - myShare;
+    const shares = getShares(e);
+    const myShare = shares[me] ?? parseFloat(e.amount) / 2;
+    const partnerShare = shares[partner] ?? parseFloat(e.amount) / 2;
     if (e.paid_by === me) {
+      // I paid — partner owes me their share
       theyOwe += partnerShare;
     } else {
+      // Partner paid — I owe them my share
       iOwe += myShare;
     }
   });
