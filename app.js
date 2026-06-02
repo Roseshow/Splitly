@@ -117,8 +117,8 @@ async function addExpense() {
   const me = cfg.me;
   const partner = cfg.partner;
 
-  // Calculate share for the person logging (cfg.me) and partner
-  // We store shares keyed by actual names so both phones calculate correctly
+  // Calculate each person's share keyed by actual name
+  // so both phones always read the same numbers
   let loggerShare = amount / 2;
   if (splitMode === 'custom') {
     const customVal = parseFloat(document.getElementById('f-custom-split').value);
@@ -130,9 +130,11 @@ async function addExpense() {
     loggerShare = amount;
   } else if (splitMode === 'partner') {
     loggerShare = 0;
+  } else if (splitMode === 'personal') {
+    // Personal: fully paid by payer, not shared — zero effect on balance
+    loggerShare = (selectedPaidBy === me) ? amount : 0;
   }
 
-  // Store shares by actual person name — person logging is cfg.me, other is cfg.partner
   const shares = {};
   shares[me] = parseFloat(loggerShare.toFixed(2));
   shares[partner] = parseFloat((amount - loggerShare).toFixed(2));
@@ -218,6 +220,13 @@ function updateSplitLabels() {
   if (btnPartner) btnPartner.textContent = partner + ' owes all';
 }
 
+function updateCustomSplitLabel() {
+  const me = cfg.me || 'Me';
+  const partner = cfg.partner || 'Partner';
+  const label = document.getElementById('custom-split-label');
+  if (label) label.textContent = 'Amount ' + me + ' owes';
+}
+
 // ── SPLIT MODE ───────────────────────────────────────────
 function setSplitMode(mode) {
   splitMode = mode;
@@ -225,6 +234,7 @@ function setSplitMode(mode) {
   const customWrap = document.getElementById('custom-split-wrap');
   if (mode === 'custom') {
     customWrap.classList.remove('hidden');
+    updateCustomSplitLabel();
     updateSplitHint();
     document.getElementById('f-custom-split').addEventListener('input', updateSplitHint);
   } else {
@@ -235,12 +245,11 @@ function setSplitMode(mode) {
 function updateSplitHint() {
   const total = parseFloat(document.getElementById('f-amount').value) || 0;
   const myVal = parseFloat(document.getElementById('f-custom-split').value) || 0;
+  const me = cfg.me || 'Me';
   const partner = cfg.partner || 'Partner';
   const hint = document.getElementById('split-hint');
-  const label = document.getElementById('custom-split-label');
-  label.textContent = `Amount ${cfg.me || 'I'} owe`;
   if (total > 0 && myVal >= 0 && myVal <= total) {
-    hint.textContent = `→ ${partner} owes €${(total - myVal).toFixed(2)}`;
+    hint.textContent = `${me}: €${myVal.toFixed(2)} · ${partner}: €${(total - myVal).toFixed(2)}`;
   } else {
     hint.textContent = '';
   }
@@ -312,15 +321,16 @@ function calcBalance(list) {
   const partner = cfg.partner || 'Partner';
   let iOwe = 0, theyOwe = 0;
   list.forEach(e => {
+    if (e.split_mode === 'personal') return; // personal expenses don't affect shared balance
     const shares = getShares(e);
-    const myShare = shares[me] ?? parseFloat(e.amount) / 2;
-    const partnerShare = shares[partner] ?? parseFloat(e.amount) / 2;
+    const aShare = shares[me] ?? parseFloat(e.amount) / 2;
+    const bShare = shares[partner] ?? parseFloat(e.amount) / 2;
     if (e.paid_by === me) {
-      // I paid — partner owes me their share
-      theyOwe += partnerShare;
+      // me paid — partner owes me their share
+      theyOwe += bShare;
     } else {
-      // Partner paid — I owe them my share
-      iOwe += myShare;
+      // partner paid — I owe them my share
+      iOwe += aShare;
     }
   });
   return { iOwe: parseFloat(iOwe.toFixed(2)), theyOwe: parseFloat(theyOwe.toFixed(2)), net: parseFloat((theyOwe - iOwe).toFixed(2)) };
@@ -338,17 +348,19 @@ function renderSplit() {
   const iPaid = expenses.filter(e => e.paid_by === me).reduce((s, e) => s + parseFloat(e.amount), 0);
   const theyPaid = totalAll - iPaid;
 
+  // net > 0 means partner owes me; net < 0 means I owe partner
+  // Use actual names so both phones show the same text
   let heroClass = '', heroLabel = '', heroAmt = '', heroSub = '';
   if (Math.abs(bal.net) < 0.01) {
     heroClass = 'settled'; heroLabel = 'All settled!';
-    heroAmt = '✓'; heroSub = "You're even";
+    heroAmt = '✓'; heroSub = me + ' & ' + partner + ' are even';
   } else if (bal.net > 0) {
-    heroLabel = `${partner} owes you`;
-    heroAmt = `€${bal.net.toFixed(2)}`;
+    heroLabel = partner + ' owes ' + me;
+    heroAmt = '€' + bal.net.toFixed(2);
     heroSub = 'across all time';
   } else {
-    heroLabel = `You owe ${partner}`;
-    heroAmt = `€${Math.abs(bal.net).toFixed(2)}`;
+    heroLabel = me + ' owes ' + partner;
+    heroAmt = '€' + Math.abs(bal.net).toFixed(2);
     heroSub = 'across all time';
   }
 
@@ -359,28 +371,27 @@ function renderSplit() {
     const total = mList.reduce((s, e) => s + parseFloat(e.amount), 0);
     let balClass = 'even', balText = 'Settled';
     if (Math.abs(mb.net) >= 0.01) {
-      if (mb.net > 0) { balClass = 'receive'; balText = `${partner} owes €${mb.net.toFixed(2)}`; }
-      else { balClass = 'owe'; balText = `You owe €${Math.abs(mb.net).toFixed(2)}`; }
+      if (mb.net > 0) { balClass = 'receive'; balText = partner + ' owes €' + mb.net.toFixed(2); }
+      else { balClass = 'owe'; balText = me + ' owes €' + Math.abs(mb.net).toFixed(2); }
     }
-    return `<div class="month-card">
-      <div><div class="month-name">${formatMonth(m)}</div><div class="month-meta">${mList.length} expenses · €${total.toFixed(2)}</div></div>
-      <div class="month-bal ${balClass}">${balText}</div>
-    </div>`;
+    return '<div class="month-card">' +
+      '<div><div class="month-name">' + formatMonth(m) + '</div><div class="month-meta">' + mList.length + ' expenses · €' + total.toFixed(2) + '</div></div>' +
+      '<div class="month-bal ' + balClass + '">' + balText + '</div>' +
+      '</div>';
   }).join('');
 
-  wrap.innerHTML = `
-    <div class="balance-hero ${heroClass}">
-      <div class="balance-label">${heroLabel}</div>
-      <div class="balance-amount">${heroAmt}</div>
-      <div class="balance-sub">${heroSub}</div>
-    </div>
-    <div class="metrics-row">
-      <div class="metric-card"><div class="metric-lbl">You paid</div><div class="metric-val">€${iPaid.toFixed(2)}</div></div>
-      <div class="metric-card"><div class="metric-lbl">${partner} paid</div><div class="metric-val">€${theyPaid.toFixed(2)}</div></div>
-    </div>
-    <div style="font-size:14px;font-weight:500;color:var(--ink2)">By month</div>
-    ${monthsHtml || '<div class="empty-state">No monthly data yet.</div>'}
-  `;
+  wrap.innerHTML =
+    '<div class="balance-hero ' + heroClass + '">' +
+      '<div class="balance-label">' + heroLabel + '</div>' +
+      '<div class="balance-amount">' + heroAmt + '</div>' +
+      '<div class="balance-sub">' + heroSub + '</div>' +
+    '</div>' +
+    '<div class="metrics-row">' +
+      '<div class="metric-card"><div class="metric-lbl">' + me + ' paid</div><div class="metric-val">€' + iPaid.toFixed(2) + '</div></div>' +
+      '<div class="metric-card"><div class="metric-lbl">' + partner + ' paid</div><div class="metric-val">€' + theyPaid.toFixed(2) + '</div></div>' +
+    '</div>' +
+    '<div style="font-size:14px;font-weight:500;color:var(--ink2)">By month</div>' +
+    (monthsHtml || '<div class="empty-state">No monthly data yet.</div>');
 }
 
 // ── SUMMARY ───────────────────────────────────────────────
