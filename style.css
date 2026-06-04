@@ -330,3 +330,13 @@ html, body {
   padding: 8px 16px;
 }
 .cat-pill-add:active { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
+
+.exp-split-row {
+  width: 100%;
+  font-size: 12px;
+  color: var(--ink2);
+  background: var(--surface2);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin-top: -2px;
+}

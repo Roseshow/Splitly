@@ -320,7 +320,6 @@ function renderList() {
   const partner = cfg.partner || '';
   wrap.innerHTML = list.map(e => {
     const amount = parseFloat(e.amount);
-    const dateShort = e.date ? e.date.slice(5) : ''; // show MM-DD only
     const shares = getShares(e);
     const meAmt = shares[me] ?? amount / 2;
     const partnerAmt = shares[partner] ?? amount / 2;
@@ -340,17 +339,18 @@ function renderList() {
       splitLabel = '50/50';
     }
 
-    return '<div class="exp-item">' +
+    return '<div class="exp-item" style="flex-wrap:wrap;gap:8px">' +
       '<div class="exp-emoji">' + e.cat_emoji + '</div>' +
       '<div class="exp-body">' +
         '<div class="exp-title">' + e.description + '</div>' +
-        '<div class="exp-sub">' + e.cat_name + ' · ' + dateShort + (e.note ? ' · ' + e.note : '') + '</div>' +
+        '<div class="exp-sub">' + e.cat_name + ' · ' + e.date + (e.note ? ' · ' + e.note : '') + '</div>' +
       '</div>' +
       '<div class="exp-right">' +
         '<div class="exp-amount">€' + amount.toFixed(2) + '</div>' +
-        '<div class="exp-who">' + e.paid_by + ' paid · ' + splitLabel + '</div>' +
+        '<div class="exp-who">' + e.paid_by + ' paid</div>' +
       '</div>' +
       '<button class="exp-delete" onclick="deleteExpense(' + e.id + ')" aria-label="Delete">✕</button>' +
+      '<div class="exp-split-row">' + splitLabel + '</div>' +
     '</div>';
   }).join('');
 }
