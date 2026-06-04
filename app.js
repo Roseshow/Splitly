@@ -81,6 +81,50 @@ function showApp() {
   sb.channel('expenses-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => loadExpenses())
     .subscribe();
+
+  // pull-to-refresh
+  initPullToRefresh();
+}
+
+function initPullToRefresh() {
+  const el = document.querySelector('.content');
+  let startY = 0, pulling = false;
+  let indicator = document.getElementById('ptr-indicator');
+  if (!indicator) {
+    indicator = document.createElement('div');
+    indicator.id = 'ptr-indicator';
+    indicator.innerHTML = '↓ Pull to refresh';
+    indicator.style.cssText = 'position:fixed;top:56px;left:0;right:0;text-align:center;padding:10px;font-size:13px;color:var(--ink3);background:var(--bg);transform:translateY(-100%);transition:transform .2s;z-index:50;font-family:var(--font)';
+    document.getElementById('app-screen').prepend(indicator);
+  }
+
+  el.addEventListener('touchstart', e => {
+    if (el.scrollTop === 0) { startY = e.touches[0].clientY; pulling = true; }
+  }, { passive: true });
+
+  el.addEventListener('touchmove', e => {
+    if (!pulling) return;
+    const dist = e.touches[0].clientY - startY;
+    if (dist > 10) {
+      const pct = Math.min(dist / 80, 1);
+      indicator.style.transform = 'translateY(' + (pct * 100 - 100) + '%)';
+      indicator.innerHTML = dist > 70 ? '↑ Release to refresh' : '↓ Pull to refresh';
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchend', e => {
+    if (!pulling) return;
+    pulling = false;
+    const dist = e.changedTouches[0].clientY - startY;
+    indicator.style.transform = 'translateY(-100%)';
+    if (dist > 70) {
+      indicator.innerHTML = 'Refreshing…';
+      indicator.style.transform = 'translateY(0)';
+      loadExpenses().then(() => {
+        setTimeout(() => { indicator.style.transform = 'translateY(-100%)'; }, 800);
+      });
+    }
+  }, { passive: true });
 }
 
 // ── LOAD DATA ───────────────────────────────────────────
@@ -272,20 +316,43 @@ function renderList() {
   if (!list.length) {
     wrap.innerHTML = '<div class="empty-state">No expenses yet.<br>Add your first one!</div>'; return;
   }
-  wrap.innerHTML = list.map(e => `
-    <div class="exp-item">
-      <div class="exp-emoji">${e.cat_emoji}</div>
-      <div class="exp-body">
-        <div class="exp-title">${e.description}</div>
-        <div class="exp-sub">${e.cat_name} · ${e.date}${e.note ? ' · ' + e.note : ''}</div>
-      </div>
-      <div class="exp-right">
-        <div class="exp-amount">€${parseFloat(e.amount).toFixed(2)}</div>
-        <div class="exp-who">${e.paid_by} paid</div>
-      </div>
-      <button class="exp-delete" onclick="deleteExpense(${e.id})" aria-label="Delete">✕</button>
-    </div>
-  `).join('');
+  const me = cfg.me || '';
+  const partner = cfg.partner || '';
+  wrap.innerHTML = list.map(e => {
+    const amount = parseFloat(e.amount);
+    const dateShort = e.date ? e.date.slice(5) : ''; // show MM-DD only
+    const shares = getShares(e);
+    const meAmt = shares[me] ?? amount / 2;
+    const partnerAmt = shares[partner] ?? amount / 2;
+
+    let splitLabel = '';
+    if (e.split_mode === 'equal') {
+      splitLabel = '50/50';
+    } else if (e.split_mode === 'personal') {
+      splitLabel = 'Personal';
+    } else if (e.split_mode === 'me') {
+      splitLabel = me + ' owes all';
+    } else if (e.split_mode === 'partner') {
+      splitLabel = partner + ' owes all';
+    } else if (e.split_mode === 'custom') {
+      splitLabel = me + ' €' + meAmt.toFixed(2) + ' · ' + partner + ' €' + partnerAmt.toFixed(2);
+    } else {
+      splitLabel = '50/50';
+    }
+
+    return '<div class="exp-item">' +
+      '<div class="exp-emoji">' + e.cat_emoji + '</div>' +
+      '<div class="exp-body">' +
+        '<div class="exp-title">' + e.description + '</div>' +
+        '<div class="exp-sub">' + e.cat_name + ' · ' + dateShort + (e.note ? ' · ' + e.note : '') + '</div>' +
+      '</div>' +
+      '<div class="exp-right">' +
+        '<div class="exp-amount">€' + amount.toFixed(2) + '</div>' +
+        '<div class="exp-who">' + e.paid_by + ' paid · ' + splitLabel + '</div>' +
+      '</div>' +
+      '<button class="exp-delete" onclick="deleteExpense(' + e.id + ')" aria-label="Delete">✕</button>' +
+    '</div>';
+  }).join('');
 }
 
 async function deleteExpense(id) {
