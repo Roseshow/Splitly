@@ -54,7 +54,7 @@ async function setupApp() {
   err.textContent = '';
   try {
     const client = supabase.createClient(url, key);
-    const { error } = await client.from('expenses').select('id').limit(1);
+    const { data, error } = await client.from('expenses').select('id').limit(1);
     if (error) throw error;
     cfg = { url, key, me, partner, categories: DEFAULT_CATS };
     categories = DEFAULT_CATS;
@@ -62,13 +62,22 @@ async function setupApp() {
     sb = client;
     showApp();
   } catch (e) {
-    err.textContent = 'Connection failed. Check your URL and key, and make sure the table is created.';
+    console.error('Setup error:', e);
+    err.textContent = 'Error: ' + (e.message || e.toString());
   }
 }
 
 function initSupabase(url, key) {
-  sb = supabase.createClient(url, key);
-  showApp();
+  try {
+    sb = supabase.createClient(url, key);
+    showApp();
+  } catch(e) {
+    console.error('initSupabase error:', e);
+    // Clear bad config so user can re-enter
+    localStorage.removeItem('splitly_cfg');
+    document.getElementById('setup-screen').classList.remove('hidden');
+    document.getElementById('app-screen').classList.add('hidden');
+  }
 }
 
 function showApp() {
@@ -694,11 +703,11 @@ function renderSummary() {
       '<div class="metric-card"><div class="metric-lbl">' + partner + ' spent</div><div class="metric-val" style="font-size:18px">€' + partnerActual.toFixed(2) + '</div></div>' +
     '</div>' +
     '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px">' +
-      '<div style="font-size:13px;font-weight:500;margin-bottom:12px;color:var(--ink2)">' + me + ''s actual spending</div>' +
+      '<div style="font-size:13px;font-weight:500;margin-bottom:12px;color:var(--ink2)">' + me + "s actual spending</div>" +
       (Object.keys(meCats).length ? miniBar(meCats, meActual, CAT_COLORS) : '<div style="font-size:13px;color:var(--ink3)">No spending</div>') +
     '</div>' +
     '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px">' +
-      '<div style="font-size:13px;font-weight:500;margin-bottom:12px;color:var(--ink2)">' + partner + ''s actual spending</div>' +
+      '<div style="font-size:13px;font-weight:500;margin-bottom:12px;color:var(--ink2)">' + partner + "s actual spending</div>" +
       (Object.keys(partnerCats).length ? miniBar(partnerCats, partnerActual, CAT_COLORS) : '<div style="font-size:13px;color:var(--ink3)">No spending</div>') +
     '</div>';
 }
