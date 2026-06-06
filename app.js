@@ -37,7 +37,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
 function setTodayDate() {
   const d = document.getElementById('f-date');
-  if (d) d.value = new Date().toISOString().split('T')[0];
+  const t = document.getElementById('f-time');
+  const now = new Date();
+  if (d) d.value = now.toISOString().split('T')[0];
+  if (t) t.value = now.toTimeString().slice(0,5);
 }
 
 // ── SETUP ───────────────────────────────────────────────
@@ -149,6 +152,7 @@ async function addExpense() {
   const desc = document.getElementById('f-desc').value.trim();
   const amount = parseFloat(document.getElementById('f-amount').value);
   const date = document.getElementById('f-date').value;
+  const time = document.getElementById('f-time').value || '00:00';
   const note = document.getElementById('f-note').value.trim();
 
   if (!desc || isNaN(amount) || amount <= 0) {
@@ -161,8 +165,12 @@ async function addExpense() {
   const me = cfg.me;
   const partner = cfg.partner;
 
-  // Calculate each person's share keyed by actual name
-  // so both phones always read the same numbers
+  // Store split_mode as absolute: 'equal', 'custom', 'personal', or 'owes:NAME'
+  // so both phones always interpret it the same way regardless of who logged it
+  let absoluteSplitMode = splitMode;
+  if (splitMode === 'me') absoluteSplitMode = 'owes:' + me;
+  if (splitMode === 'partner') absoluteSplitMode = 'owes:' + partner;
+
   let loggerShare = amount / 2;
   if (splitMode === 'custom') {
     const customVal = parseFloat(document.getElementById('f-custom-split').value);
@@ -175,7 +183,6 @@ async function addExpense() {
   } else if (splitMode === 'partner') {
     loggerShare = 0;
   } else if (splitMode === 'personal') {
-    // Personal: fully paid by payer, not shared — zero effect on balance
     loggerShare = (selectedPaidBy === me) ? amount : 0;
   }
 
@@ -184,12 +191,13 @@ async function addExpense() {
   shares[partner] = parseFloat((amount - loggerShare).toFixed(2));
 
   const record = {
-    description: desc, amount, date, note,
+    description: desc, amount, date, time, note,
     cat_emoji: selectedCat.emoji,
     cat_name: selectedCat.name,
     paid_by: selectedPaidBy,
-    split_mode: splitMode,
+    split_mode: absoluteSplitMode,
     share_data: JSON.stringify(shares),
+    logged_by: me,
   };
 
   const { error } = await sb.from('expenses').insert([record]);
@@ -201,6 +209,7 @@ async function addExpense() {
   document.getElementById('f-custom-split').value = '';
   setTodayDate();
   showToast();
+  loadExpenses();
 }
 
 function showToast() {
@@ -260,6 +269,7 @@ function updateSplitLabels() {
   const partner = cfg.partner || 'Partner';
   const btnMe = document.getElementById('split-btn-me');
   const btnPartner = document.getElementById('split-btn-partner');
+  // Show actual names on buttons so it's always clear who owes all
   if (btnMe) btnMe.textContent = me + ' owes all';
   if (btnPartner) btnPartner.textContent = partner + ' owes all';
 }
@@ -323,34 +333,22 @@ function renderList() {
     const shares = getShares(e);
     const meAmt = shares[me] ?? amount / 2;
     const partnerAmt = shares[partner] ?? amount / 2;
+    const timeStr = e.time ? ' ' + e.time : '';
+    const splitLabel = splitLabelFromMode(e.split_mode, me, partner, meAmt, partnerAmt);
 
-    let splitLabel = '';
-    if (e.split_mode === 'equal') {
-      splitLabel = '50/50';
-    } else if (e.split_mode === 'personal') {
-      splitLabel = 'Personal';
-    } else if (e.split_mode === 'me') {
-      splitLabel = me + ' owes all';
-    } else if (e.split_mode === 'partner') {
-      splitLabel = partner + ' owes all';
-    } else if (e.split_mode === 'custom') {
-      splitLabel = me + ' €' + meAmt.toFixed(2) + ' · ' + partner + ' €' + partnerAmt.toFixed(2);
-    } else {
-      splitLabel = '50/50';
-    }
-
-    return '<div class="exp-item" style="flex-wrap:wrap;gap:8px">' +
+    return '<div class="exp-item" onclick="openEdit(' + e.id + ')">' +
       '<div class="exp-emoji">' + e.cat_emoji + '</div>' +
-      '<div class="exp-body">' +
-        '<div class="exp-title">' + e.description + '</div>' +
-        '<div class="exp-sub">' + e.cat_name + ' · ' + e.date + (e.note ? ' · ' + e.note : '') + '</div>' +
+      '<div class="exp-body-full">' +
+        '<div class="exp-row1">' +
+          '<div class="exp-title">' + e.description + '</div>' +
+          '<div class="exp-amount">€' + amount.toFixed(2) + '</div>' +
+        '</div>' +
+        '<div class="exp-row2">' +
+          '<span class="exp-sub">' + e.cat_name + ' · ' + e.date + timeStr + ' · ' + e.paid_by + ' paid</span>' +
+        '</div>' +
+        (e.note ? '<div class="exp-row2"><span class="exp-sub">' + e.note + '</span></div>' : '') +
+        '<div class="exp-split-row">' + splitLabel + '</div>' +
       '</div>' +
-      '<div class="exp-right">' +
-        '<div class="exp-amount">€' + amount.toFixed(2) + '</div>' +
-        '<div class="exp-who">' + e.paid_by + ' paid</div>' +
-      '</div>' +
-      '<button class="exp-delete" onclick="deleteExpense(' + e.id + ')" aria-label="Delete">✕</button>' +
-      '<div class="exp-split-row">' + splitLabel + '</div>' +
     '</div>';
   }).join('');
 }
@@ -358,6 +356,127 @@ function renderList() {
 async function deleteExpense(id) {
   if (!confirm('Delete this expense?')) return;
   await sb.from('expenses').delete().eq('id', id);
+  document.getElementById('edit-modal').classList.add('hidden');
+}
+
+function openEdit(id) {
+  const e = expenses.find(x => x.id === id);
+  if (!e) return;
+  const me = cfg.me || '';
+  const partner = cfg.partner || '';
+  const shares = getShares(e);
+  const meAmt = shares[me] ?? parseFloat(e.amount) / 2;
+  const partnerAmt = shares[partner] ?? parseFloat(e.amount) / 2;
+
+  document.getElementById('edit-id').value = id;
+  document.getElementById('edit-desc').value = e.description || '';
+  document.getElementById('edit-amount').value = parseFloat(e.amount).toFixed(2);
+  document.getElementById('edit-date').value = e.date || '';
+  document.getElementById('edit-time').value = e.time || '';
+  document.getElementById('edit-note').value = e.note || '';
+  document.getElementById('edit-paidby').value = e.paid_by || me;
+
+  // Populate category select
+  const catSel = document.getElementById('edit-cat');
+  catSel.innerHTML = categories.map(c => '<option value="' + c.emoji + '|' + c.name + '">' + c.emoji + ' ' + c.name + '</option>').join('');
+  catSel.value = e.cat_emoji + '|' + e.cat_name;
+
+  // Populate split select — normalise legacy modes
+  const splitSel = document.getElementById('edit-split');
+  splitSel.innerHTML =
+    '<option value="equal">50/50</option>' +
+    '<option value="owes:' + me + '">' + me + ' owes all</option>' +
+    '<option value="owes:' + partner + '">' + partner + ' owes all</option>' +
+    '<option value="personal">Personal</option>' +
+    '<option value="custom">Custom €</option>';
+
+  let modeVal = e.split_mode || 'equal';
+  if (modeVal === 'me') modeVal = 'owes:' + (e.logged_by || me);
+  if (modeVal === 'partner') modeVal = 'owes:' + (e.logged_by ? (e.logged_by === me ? partner : me) : partner);
+  splitSel.value = modeVal;
+  toggleEditCustom();
+
+  document.getElementById('edit-custom-me').value = meAmt.toFixed(2);
+  document.getElementById('edit-custom-partner').value = partnerAmt.toFixed(2);
+  document.getElementById('edit-custom-me-label').textContent = me;
+  document.getElementById('edit-custom-partner-label').textContent = partner;
+
+  document.getElementById('edit-modal').classList.remove('hidden');
+}
+
+function toggleEditCustom() {
+  const mode = document.getElementById('edit-split').value;
+  document.getElementById('edit-custom-wrap').classList.toggle('hidden', mode !== 'custom');
+}
+
+function closeEdit() {
+  document.getElementById('edit-modal').classList.add('hidden');
+}
+
+function closeEditOutside(ev) {
+  if (ev.target === document.getElementById('edit-modal')) closeEdit();
+}
+
+async function saveEdit() {
+  const id = parseInt(document.getElementById('edit-id').value);
+  const desc = document.getElementById('edit-desc').value.trim();
+  const amount = parseFloat(document.getElementById('edit-amount').value);
+  const date = document.getElementById('edit-date').value;
+  const time = document.getElementById('edit-time').value;
+  const note = document.getElementById('edit-note').value.trim();
+  const paidBy = document.getElementById('edit-paidby').value;
+  const catVal = document.getElementById('edit-cat').value;
+  const splitVal = document.getElementById('edit-split').value;
+  const me = cfg.me || '';
+  const partner = cfg.partner || '';
+
+  if (!desc || isNaN(amount) || amount <= 0) { alert('Check description and amount.'); return; }
+
+  const [catEmoji, catName] = catVal.split('|');
+
+  let meShare = amount / 2;
+  if (splitVal === 'owes:' + me) meShare = amount;
+  else if (splitVal === 'owes:' + partner) meShare = 0;
+  else if (splitVal === 'personal') meShare = paidBy === me ? amount : 0;
+  else if (splitVal === 'custom') {
+    meShare = parseFloat(document.getElementById('edit-custom-me').value) || 0;
+  }
+
+  const shares = {};
+  shares[me] = parseFloat(meShare.toFixed(2));
+  shares[partner] = parseFloat((amount - meShare).toFixed(2));
+
+  const { error } = await sb.from('expenses').update({
+    description: desc, amount, date, time, note,
+    cat_emoji: catEmoji, cat_name: catName,
+    paid_by: paidBy, split_mode: splitVal,
+    share_data: JSON.stringify(shares),
+  }).eq('id', id);
+
+  if (error) { alert('Save failed: ' + error.message); return; }
+  closeEdit();
+}
+
+// ── SPLIT HELPERS ─────────────────────────────────────────
+function splitLabelFromMode(mode, me, partner, meAmt, partnerAmt) {
+  if (mode === 'equal') return '50/50';
+  if (mode === 'personal') return 'Personal';
+  if (mode === 'custom') return me + ' €' + meAmt.toFixed(2) + ' · ' + partner + ' €' + partnerAmt.toFixed(2);
+  if (mode && mode.startsWith('owes:')) {
+    const who = mode.slice(5);
+    return who + ' owes all';
+  }
+  // legacy 'me'/'partner' — shouldn't appear in new records
+  if (mode === 'me') return me + ' owes all';
+  if (mode === 'partner') return partner + ' owes all';
+  return '50/50';
+}
+
+function splitModeForBalance(mode, me, partner) {
+  // Normalise legacy modes to absolute
+  if (mode === 'me') return 'owes:' + me;
+  if (mode === 'partner') return 'owes:' + partner;
+  return mode;
 }
 
 // ── SPLIT SECTION ─────────────────────────────────────────
@@ -388,15 +507,14 @@ function calcBalance(list) {
   const partner = cfg.partner || 'Partner';
   let iOwe = 0, theyOwe = 0;
   list.forEach(e => {
-    if (e.split_mode === 'personal') return; // personal expenses don't affect shared balance
+    const mode = splitModeForBalance(e.split_mode, me, partner);
+    if (mode === 'personal') return;
     const shares = getShares(e);
     const aShare = shares[me] ?? parseFloat(e.amount) / 2;
     const bShare = shares[partner] ?? parseFloat(e.amount) / 2;
     if (e.paid_by === me) {
-      // me paid — partner owes me their share
       theyOwe += bShare;
     } else {
-      // partner paid — I owe them my share
       iOwe += aShare;
     }
   });

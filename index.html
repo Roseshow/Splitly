@@ -77,9 +77,15 @@
           <label class="field-label">Paid by</label>
           <div class="pill-select" id="paidby-pills"></div>
         </div>
-        <div>
-          <label class="field-label">Date</label>
-          <input id="f-date" class="field-input" type="date" />
+        <div class="two-col" style="gap:8px">
+          <div>
+            <label class="field-label">Date</label>
+            <input id="f-date" class="field-input" type="date" />
+          </div>
+          <div>
+            <label class="field-label">Time</label>
+            <input id="f-time" class="field-input" type="time" />
+          </div>
         </div>
       </div>
 
@@ -183,6 +189,55 @@
 
       <div class="section-divider"></div>
       <button class="btn-danger full" onclick="resetApp()">Reset & disconnect</button>
+    </div>
+  </div>
+</div>
+
+<div id="edit-modal" class="modal-overlay hidden" onclick="closeEditOutside(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Edit expense</h3>
+      <button class="icon-btn" onclick="closeEdit()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-id" />
+      <label class="field-label">Description</label>
+      <input id="edit-desc" class="field-input" type="text" maxlength="80" />
+      <label class="field-label" style="margin-top:10px">Amount (€)</label>
+      <input id="edit-amount" class="field-input" type="number" step="0.01" min="0" />
+      <div class="two-col" style="gap:8px;margin-top:10px">
+        <div>
+          <label class="field-label">Date</label>
+          <input id="edit-date" class="field-input" type="date" />
+        </div>
+        <div>
+          <label class="field-label">Time</label>
+          <input id="edit-time" class="field-input" type="time" />
+        </div>
+      </div>
+      <label class="field-label" style="margin-top:10px">Category</label>
+      <select id="edit-cat" class="field-input"></select>
+      <label class="field-label" style="margin-top:10px">Paid by</label>
+      <select id="edit-paidby" class="field-input"></select>
+      <label class="field-label" style="margin-top:10px">Split</label>
+      <select id="edit-split" class="field-input" onchange="toggleEditCustom()"></select>
+      <div id="edit-custom-wrap" class="hidden" style="margin-top:10px;display:flex;gap:8px">
+        <div style="flex:1">
+          <label class="field-label" id="edit-custom-me-label">Me</label>
+          <input id="edit-custom-me" class="field-input" type="number" step="0.01" min="0" placeholder="0.00" />
+        </div>
+        <div style="flex:1">
+          <label class="field-label" id="edit-custom-partner-label">Partner</label>
+          <input id="edit-custom-partner" class="field-input" type="number" step="0.01" min="0" placeholder="0.00" />
+        </div>
+      </div>
+      <label class="field-label" style="margin-top:10px">Note</label>
+      <input id="edit-note" class="field-input" type="text" maxlength="100" />
+      <div class="section-divider" style="margin-top:16px"></div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="btn-primary" style="flex:1" onclick="saveEdit()">Save changes</button>
+        <button class="btn-danger" onclick="deleteExpense(parseInt(document.getElementById('edit-id').value))">Delete</button>
+      </div>
     </div>
   </div>
 </div>
