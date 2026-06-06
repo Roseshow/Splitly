@@ -348,3 +348,9 @@ html, body {
 .exp-row1 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .exp-row2 { display: flex; }
 .exp-row2 .exp-sub { font-size: 12px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.summary-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 20px 0 16px;
+}

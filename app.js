@@ -132,7 +132,7 @@ function initPullToRefresh() {
 
 // ── LOAD DATA ───────────────────────────────────────────
 async function loadExpenses() {
-  const { data, error } = await sb.from('expenses').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
+  const { data, error } = await sb.from('expenses').select('*').order('date', { ascending: false }).order('time', { ascending: false, nullsFirst: false });
   if (!error) {
     expenses = data || [];
     renderAll();
@@ -374,7 +374,13 @@ function openEdit(id) {
   document.getElementById('edit-date').value = e.date || '';
   document.getElementById('edit-time').value = e.time || '';
   document.getElementById('edit-note').value = e.note || '';
-  document.getElementById('edit-paidby').value = e.paid_by || me;
+
+  // Populate paid-by select with actual names
+  const paidBySel = document.getElementById('edit-paidby');
+  paidBySel.innerHTML =
+    '<option value="' + me + '">' + me + '</option>' +
+    '<option value="' + partner + '">' + partner + '</option>';
+  paidBySel.value = e.paid_by || me;
 
   // Populate category select
   const catSel = document.getElementById('edit-cat');
@@ -625,17 +631,76 @@ function renderSummary() {
     </div>
   `).join('');
 
-  wrap.innerHTML = `
-    <div class="summary-stat-grid">
-      <div class="metric-card"><div class="metric-lbl">Total</div><div class="metric-val" style="font-size:18px">€${total.toFixed(2)}</div></div>
-      <div class="metric-card"><div class="metric-lbl">Expenses</div><div class="metric-val" style="font-size:18px">${list.length}</div></div>
-      <div class="metric-card"><div class="metric-lbl">Balance</div><div class="metric-val" style="font-size:18px;color:${balColor}">${balText}</div></div>
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
-      <div style="font-size:14px;font-weight:500;margin-bottom:14px">Spending by category</div>
-      ${barsHtml}
-    </div>
-  `;
+  // ── Personal spending: what each person actually consumed (their share of every expense)
+  const me = cfg.me || '';
+  const partner = cfg.partner || '';
+  let meActual = 0, partnerActual = 0;
+  list.forEach(e => {
+    if (e.split_mode === 'personal') {
+      // personal expense: only the payer consumed it
+      if (e.paid_by === me) meActual += parseFloat(e.amount);
+      else partnerActual += parseFloat(e.amount);
+    } else {
+      const shares = getShares(e);
+      meActual += shares[me] ?? parseFloat(e.amount) / 2;
+      partnerActual += shares[partner] ?? parseFloat(e.amount) / 2;
+    }
+  });
+
+  // Category breakdown for me and partner actual spending
+  const meCats = {}, partnerCats = {};
+  list.forEach(e => {
+    const key = e.cat_emoji + ' ' + e.cat_name;
+    const shares = getShares(e);
+    const myAmt = e.split_mode === 'personal'
+      ? (e.paid_by === me ? parseFloat(e.amount) : 0)
+      : (shares[me] ?? parseFloat(e.amount) / 2);
+    const partnerAmt = e.split_mode === 'personal'
+      ? (e.paid_by === partner ? parseFloat(e.amount) : 0)
+      : (shares[partner] ?? parseFloat(e.amount) / 2);
+    if (myAmt > 0) meCats[key] = (meCats[key] || 0) + myAmt;
+    if (partnerAmt > 0) partnerCats[key] = (partnerCats[key] || 0) + partnerAmt;
+  });
+
+  function miniBar(cats, totalAmt, colors) {
+    const sorted = Object.entries(cats).sort((a,b) => b[1]-a[1]);
+    const mx = sorted[0]?.[1] || 1;
+    return sorted.map(([cat, amt], i) =>
+      '<div class="cat-bar-row">' +
+        '<div class="cat-bar-top">' +
+          '<span>' + cat + '</span>' +
+          '<span style="font-family:var(--font-mono);font-size:12px">€' + amt.toFixed(2) +
+            ' <span style="color:var(--ink3)">' + Math.round(amt/totalAmt*100) + '%</span></span>' +
+        '</div>' +
+        '<div class="cat-bar-bg"><div class="cat-bar-fill" style="width:' + (amt/mx*100).toFixed(1) + '%;background:' + colors[i % colors.length] + '"></div></div>' +
+      '</div>'
+    ).join('');
+  }
+
+  wrap.innerHTML =
+    '<div class="summary-stat-grid">' +
+      '<div class="metric-card"><div class="metric-lbl">Total</div><div class="metric-val" style="font-size:18px">€' + total.toFixed(2) + '</div></div>' +
+      '<div class="metric-card"><div class="metric-lbl">Expenses</div><div class="metric-val" style="font-size:18px">' + list.length + '</div></div>' +
+      '<div class="metric-card"><div class="metric-lbl">Balance</div><div class="metric-val" style="font-size:18px;color:' + balColor + '">' + balText + '</div></div>' +
+    '</div>' +
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px">' +
+      '<div style="font-size:14px;font-weight:500;margin-bottom:14px">Spending by category</div>' +
+      barsHtml +
+    '</div>' +
+    '<div class="summary-divider"></div>' +
+    '<div style="font-size:14px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Personal summary</div>' +
+    '<div class="metrics-row" style="margin-bottom:12px">' +
+      '<div class="metric-card"><div class="metric-lbl">' + me + ' spent</div><div class="metric-val" style="font-size:18px">€' + meActual.toFixed(2) + '</div></div>' +
+      '<div class="metric-card"><div class="metric-lbl">' + partner + ' spent</div><div class="metric-val" style="font-size:18px">€' + partnerActual.toFixed(2) + '</div></div>' +
+    '</div>' +
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px">' +
+      '<div style="font-size:13px;font-weight:500;margin-bottom:12px;color:var(--ink2)">' + me + ''s actual spending</div>' +
+      (Object.keys(meCats).length ? miniBar(meCats, meActual, CAT_COLORS) : '<div style="font-size:13px;color:var(--ink3)">No spending</div>') +
+    '</div>' +
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px">' +
+      '<div style="font-size:13px;font-weight:500;margin-bottom:12px;color:var(--ink2)">' + partner + ''s actual spending</div>' +
+      (Object.keys(partnerCats).length ? miniBar(partnerCats, partnerActual, CAT_COLORS) : '<div style="font-size:13px;color:var(--ink3)">No spending</div>') +
+    '</div>';
 }
 
 // ── SETTINGS ─────────────────────────────────────────────
