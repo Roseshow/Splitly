@@ -354,3 +354,26 @@ html, body {
   background: var(--border);
   margin: 20px 0 16px;
 }
+
+/* ── SETTLE UP ── */
+.month-card-wrap { display: flex; flex-direction: column; gap: 0; }
+.month-action { padding: 8px 14px 12px; background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.month-card { border-radius: var(--radius-sm); }
+.month-card-wrap .month-card { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.month-card-wrap:has(.month-action) .month-card { border-bottom: none; }
+.btn-settle {
+  width: 100%; padding: 9px; font-size: 13px; font-weight: 600;
+  background: var(--accent); color: white; border: none;
+  border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font);
+  transition: opacity .15s;
+}
+.btn-settle:active { opacity: .75; }
+.settle-badge {
+  font-size: 13px; font-weight: 500; color: var(--success);
+  line-height: 1.5;
+}
+.settle-summary-box {
+  background: var(--accent-light); border-radius: var(--radius-sm);
+  padding: 12px 14px; font-size: 14px; font-weight: 500;
+  color: var(--accent); text-align: center;
+}

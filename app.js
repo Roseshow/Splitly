@@ -2,6 +2,7 @@
 let sb = null;
 let cfg = {};
 let expenses = [];
+let settlements = [];
 let categories = [];
 let selectedCat = null;
 let selectedPaidBy = null;
@@ -90,8 +91,9 @@ function showApp() {
   loadExpenses();
 
   // realtime subscription
-  sb.channel('expenses-changes')
+  sb.channel('splitly-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => loadExpenses())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'settlements' }, () => loadExpenses())
     .subscribe();
 
   // pull-to-refresh
@@ -141,11 +143,13 @@ function initPullToRefresh() {
 
 // ── LOAD DATA ───────────────────────────────────────────
 async function loadExpenses() {
-  const { data, error } = await sb.from('expenses').select('*').order('date', { ascending: false }).order('time', { ascending: false, nullsFirst: false });
-  if (!error) {
-    expenses = data || [];
-    renderAll();
-  }
+  const [expRes, setRes] = await Promise.all([
+    sb.from('expenses').select('*').order('date', { ascending: false }).order('time', { ascending: false, nullsFirst: false }),
+    sb.from('settlements').select('*').order('date', { ascending: false })
+  ]);
+  if (!expRes.error) expenses = expRes.data || [];
+  if (!setRes.error) settlements = setRes.data || [];
+  renderAll();
 }
 
 function renderAll() {
@@ -536,48 +540,78 @@ function calcBalance(list) {
   return { iOwe: parseFloat(iOwe.toFixed(2)), theyOwe: parseFloat(theyOwe.toFixed(2)), net: parseFloat((theyOwe - iOwe).toFixed(2)) };
 }
 
+function isMonthSettled(m) {
+  return settlements.some(s => s.month_key === m);
+}
+
+function getMonthSettlement(m) {
+  return settlements.find(s => s.month_key === m) || null;
+}
+
 function renderSplit() {
   const wrap = document.getElementById('split-content');
   if (!wrap) return;
   const me = cfg.me || 'Me';
   const partner = cfg.partner || 'Partner';
-  if (!expenses.length) { wrap.innerHTML = '<div class="empty-state">No expenses yet.</div>'; return; }
+  if (!expenses.length && !settlements.length) {
+    wrap.innerHTML = '<div class="empty-state">No expenses yet.</div>'; return;
+  }
 
-  const bal = calcBalance(expenses);
+  // Hero: only count expenses from unsettled months
+  const allMonths = getMonths();
+  const unsettledMonths = allMonths.filter(m => !isMonthSettled(m));
+  const unsettledExpenses = expenses.filter(e => unsettledMonths.includes(monthKey(e.date)));
+  const bal = calcBalance(unsettledExpenses);
+
   const totalAll = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
   const iPaid = expenses.filter(e => e.paid_by === me).reduce((s, e) => s + parseFloat(e.amount), 0);
   const theyPaid = totalAll - iPaid;
 
-  // net > 0 means partner owes me; net < 0 means I owe partner
-  // Use actual names so both phones show the same text
   let heroClass = '', heroLabel = '', heroAmt = '', heroSub = '';
-  if (Math.abs(bal.net) < 0.01) {
+  if (unsettledMonths.length === 0 || Math.abs(bal.net) < 0.01) {
     heroClass = 'settled'; heroLabel = 'All settled!';
     heroAmt = '✓'; heroSub = me + ' & ' + partner + ' are even';
   } else if (bal.net > 0) {
     heroLabel = partner + ' owes ' + me;
     heroAmt = '€' + bal.net.toFixed(2);
-    heroSub = 'across all time';
+    heroSub = 'unsettled months only';
   } else {
     heroLabel = me + ' owes ' + partner;
     heroAmt = '€' + Math.abs(bal.net).toFixed(2);
-    heroSub = 'across all time';
+    heroSub = 'unsettled months only';
   }
 
-  const months = getMonths();
-  let monthsHtml = months.map(m => {
+  let monthsHtml = allMonths.map(m => {
     const mList = expenses.filter(e => monthKey(e.date) === m);
     const mb = calcBalance(mList);
     const total = mList.reduce((s, e) => s + parseFloat(e.amount), 0);
-    let balClass = 'even', balText = 'Settled';
-    if (Math.abs(mb.net) >= 0.01) {
+    const settlement = getMonthSettlement(m);
+
+    let balClass, balText, actionHtml;
+    if (settlement) {
+      balClass = 'even';
+      balText = 'Settled ✓';
+      actionHtml = '<div class="settle-badge">Settled ✓<br>' +
+        '<span style="font-size:11px;opacity:.8">' + settlement.paid_by + ' paid ' + settlement.paid_to +
+        ' €' + parseFloat(settlement.amount).toFixed(2) +
+        ' on ' + settlement.date + (settlement.time ? ' ' + settlement.time : '') + '</span></div>';
+    } else if (Math.abs(mb.net) < 0.01) {
+      balClass = 'even'; balText = 'Even';
+      actionHtml = '';
+    } else {
       if (mb.net > 0) { balClass = 'receive'; balText = partner + ' owes €' + mb.net.toFixed(2); }
       else { balClass = 'owe'; balText = me + ' owes €' + Math.abs(mb.net).toFixed(2); }
+      actionHtml = '<button class="btn-settle" onclick="openSettle(&quot;' + m + '&quot;,' + mb.net.toFixed(2) + ')">Settle up</button>';
     }
-    return '<div class="month-card">' +
-      '<div><div class="month-name">' + formatMonth(m) + '</div><div class="month-meta">' + mList.length + ' expenses · €' + total.toFixed(2) + '</div></div>' +
-      '<div class="month-bal ' + balClass + '">' + balText + '</div>' +
-      '</div>';
+
+    return '<div class="month-card-wrap">' +
+      '<div class="month-card">' +
+        '<div><div class="month-name">' + formatMonth(m) + '</div>' +
+        '<div class="month-meta">' + mList.length + ' expenses · €' + total.toFixed(2) + '</div></div>' +
+        '<div class="month-bal ' + balClass + '">' + balText + '</div>' +
+      '</div>' +
+      (actionHtml ? '<div class="month-action">' + actionHtml + '</div>' : '') +
+    '</div>';
   }).join('');
 
   wrap.innerHTML =
@@ -590,8 +624,55 @@ function renderSplit() {
       '<div class="metric-card"><div class="metric-lbl">' + me + ' paid</div><div class="metric-val">€' + iPaid.toFixed(2) + '</div></div>' +
       '<div class="metric-card"><div class="metric-lbl">' + partner + ' paid</div><div class="metric-val">€' + theyPaid.toFixed(2) + '</div></div>' +
     '</div>' +
-    '<div style="font-size:14px;font-weight:500;color:var(--ink2)">By month</div>' +
+    '<div style="font-size:14px;font-weight:500;color:var(--ink2);margin-bottom:4px">By month</div>' +
     (monthsHtml || '<div class="empty-state">No monthly data yet.</div>');
+}
+
+// ── SETTLE UP ─────────────────────────────────────────────
+function openSettle(monthKey, net) {
+  const me = cfg.me || '';
+  const partner = cfg.partner || '';
+  const payer = net < 0 ? me : partner;
+  const receiver = net < 0 ? partner : me;
+  const amount = Math.abs(net).toFixed(2);
+
+  document.getElementById('settle-month-key').value = monthKey;
+  document.getElementById('settle-paidby').value = payer;
+  document.getElementById('settle-paidto').value = receiver;
+  document.getElementById('settle-amount').value = amount;
+  document.getElementById('settle-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('settle-time').value = new Date().toTimeString().slice(0,5);
+  document.getElementById('settle-note').value = '';
+  document.getElementById('settle-title').textContent = 'Settle up — ' + formatMonth(monthKey);
+  document.getElementById('settle-summary').textContent = payer + ' pays ' + receiver + ' €' + amount;
+  document.getElementById('settle-modal').classList.remove('hidden');
+}
+
+function closeSettle() {
+  document.getElementById('settle-modal').classList.add('hidden');
+}
+
+function closeSettleOutside(ev) {
+  if (ev.target === document.getElementById('settle-modal')) closeSettle();
+}
+
+async function confirmSettle() {
+  const mk = document.getElementById('settle-month-key').value;
+  const paidBy = document.getElementById('settle-paidby').value;
+  const paidTo = document.getElementById('settle-paidto').value;
+  const amount = parseFloat(document.getElementById('settle-amount').value);
+  const date = document.getElementById('settle-date').value;
+  const time = document.getElementById('settle-time').value;
+  const note = document.getElementById('settle-note').value.trim();
+
+  if (!date || isNaN(amount) || amount <= 0) { alert('Please check amount and date.'); return; }
+
+  const { error } = await sb.from('settlements').insert([{
+    paid_by: paidBy, paid_to: paidTo, amount, date, time, note, month_key: mk
+  }]);
+  if (error) { alert('Failed to save: ' + error.message); return; }
+  closeSettle();
+  await loadExpenses();
 }
 
 // ── SUMMARY ───────────────────────────────────────────────

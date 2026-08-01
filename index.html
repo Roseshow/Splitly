@@ -193,6 +193,39 @@
   </div>
 </div>
 
+<div id="settle-modal" class="modal-overlay hidden" onclick="closeSettleOutside(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="settle-title">Settle up</h3>
+      <button class="icon-btn" onclick="closeSettle()">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="settle-month-key" />
+      <div class="settle-summary-box" id="settle-summary"></div>
+      <label class="field-label" style="margin-top:12px">Paid by</label>
+      <input id="settle-paidby" class="field-input" type="text" readonly style="opacity:.6" />
+      <label class="field-label" style="margin-top:10px">Paid to</label>
+      <input id="settle-paidto" class="field-input" type="text" readonly style="opacity:.6" />
+      <label class="field-label" style="margin-top:10px">Amount (&#8364;)</label>
+      <input id="settle-amount" class="field-input" type="number" step="0.01" min="0" />
+      <div class="two-col" style="gap:8px;margin-top:10px">
+        <div>
+          <label class="field-label">Date</label>
+          <input id="settle-date" class="field-input" type="date" />
+        </div>
+        <div>
+          <label class="field-label">Time</label>
+          <input id="settle-time" class="field-input" type="time" />
+        </div>
+      </div>
+      <label class="field-label" style="margin-top:10px">Note (optional)</label>
+      <input id="settle-note" class="field-input" type="text" placeholder="e.g. Bank transfer" maxlength="100" />
+      <div class="section-divider" style="margin-top:16px"></div>
+      <button class="btn-primary full" onclick="confirmSettle()">Confirm settlement</button>
+    </div>
+  </div>
+</div>
+
 <div id="edit-modal" class="modal-overlay hidden" onclick="closeEditOutside(event)">
   <div class="modal-box">
     <div class="modal-header">
