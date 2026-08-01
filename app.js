@@ -557,28 +557,47 @@ function renderSplit() {
     wrap.innerHTML = '<div class="empty-state">No expenses yet.</div>'; return;
   }
 
-  // Hero: only count expenses from unsettled months
+  // Hero: unsettled expense balance + any carry-forwards from settled months
   const allMonths = getMonths();
   const unsettledMonths = allMonths.filter(m => !isMonthSettled(m));
   const unsettledExpenses = expenses.filter(e => unsettledMonths.includes(monthKey(e.date)));
   const bal = calcBalance(unsettledExpenses);
+
+  // Sum carry-forwards from all settlements
+  // carry_forward > 0: payer overpaid → receiver (partner) owes payer → adds to net positively for payer
+  // carry_forward < 0: payer underpaid → payer still owes receiver → subtracts from net
+  let carryNet = 0;
+  settlements.forEach(s => {
+    const cf = parseFloat(s.carry_forward) || 0;
+    if (cf === 0) return;
+    // Who is "me" in this carry-forward?
+    if (s.paid_by === me) {
+      // me was the payer: positive cf = I overpaid → partner owes me more
+      carryNet += cf;
+    } else {
+      // partner was the payer: positive cf = partner overpaid → I owe them more
+      carryNet -= cf;
+    }
+  });
+  const totalNet = parseFloat((bal.net + carryNet).toFixed(2));
 
   const totalAll = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
   const iPaid = expenses.filter(e => e.paid_by === me).reduce((s, e) => s + parseFloat(e.amount), 0);
   const theyPaid = totalAll - iPaid;
 
   let heroClass = '', heroLabel = '', heroAmt = '', heroSub = '';
-  if (unsettledMonths.length === 0 || Math.abs(bal.net) < 0.01) {
+  const hasUnsettled = unsettledMonths.length > 0 || Math.abs(carryNet) >= 0.01;
+  if (!hasUnsettled || Math.abs(totalNet) < 0.01) {
     heroClass = 'settled'; heroLabel = 'All settled!';
     heroAmt = '✓'; heroSub = me + ' & ' + partner + ' are even';
-  } else if (bal.net > 0) {
+  } else if (totalNet > 0) {
     heroLabel = partner + ' owes ' + me;
-    heroAmt = '€' + bal.net.toFixed(2);
-    heroSub = 'unsettled months only';
+    heroAmt = '€' + totalNet.toFixed(2);
+    heroSub = Math.abs(carryNet) >= 0.01 ? 'incl. €' + Math.abs(carryNet).toFixed(2) + ' carry-forward' : 'unsettled months only';
   } else {
     heroLabel = me + ' owes ' + partner;
-    heroAmt = '€' + Math.abs(bal.net).toFixed(2);
-    heroSub = 'unsettled months only';
+    heroAmt = '€' + Math.abs(totalNet).toFixed(2);
+    heroSub = Math.abs(carryNet) >= 0.01 ? 'incl. €' + Math.abs(carryNet).toFixed(2) + ' carry-forward' : 'unsettled months only';
   }
 
   let monthsHtml = allMonths.map(m => {
@@ -591,10 +610,20 @@ function renderSplit() {
     if (settlement) {
       balClass = 'even';
       balText = 'Settled ✓';
+      const cf = parseFloat(settlement.carry_forward) || 0;
+      const owed = parseFloat(settlement.owed_amount) || parseFloat(settlement.amount);
+      const actual = parseFloat(settlement.amount);
+      let cfText = '';
+      if (Math.abs(cf) >= 0.01) {
+        if (cf > 0) cfText = ' · €' + cf.toFixed(2) + ' overpaid → carried forward';
+        else cfText = ' · €' + Math.abs(cf).toFixed(2) + ' underpaid → carried forward';
+      }
       actionHtml = '<div class="settle-badge">Settled ✓<br>' +
-        '<span style="font-size:11px;opacity:.8">' + settlement.paid_by + ' paid ' + settlement.paid_to +
-        ' €' + parseFloat(settlement.amount).toFixed(2) +
-        ' on ' + settlement.date + (settlement.time ? ' ' + settlement.time : '') + '</span></div>';
+        '<span style="font-size:11px;opacity:.8">' +
+        settlement.paid_by + ' paid €' + actual.toFixed(2) +
+        (Math.abs(cf) >= 0.01 ? ' (owed €' + owed.toFixed(2) + ')' : '') +
+        ' on ' + settlement.date + (settlement.time ? ' ' + settlement.time : '') +
+        cfText + '</span></div>';
     } else if (Math.abs(mb.net) < 0.01) {
       balClass = 'even'; balText = 'Even';
       actionHtml = '';
@@ -637,6 +666,7 @@ function openSettle(monthKey, net) {
   const amount = Math.abs(net).toFixed(2);
 
   document.getElementById('settle-month-key').value = monthKey;
+  document.getElementById('settle-owed-amount').value = Math.abs(net).toFixed(2);
   document.getElementById('settle-paidby').value = payer;
   document.getElementById('settle-paidto').value = receiver;
   document.getElementById('settle-amount').value = amount;
@@ -645,7 +675,29 @@ function openSettle(monthKey, net) {
   document.getElementById('settle-note').value = '';
   document.getElementById('settle-title').textContent = 'Settle up — ' + formatMonth(monthKey);
   document.getElementById('settle-summary').textContent = payer + ' pays ' + receiver + ' €' + amount;
+  // live diff hint
+  updateSettleDiff();
+  document.getElementById('settle-amount').oninput = updateSettleDiff;
   document.getElementById('settle-modal').classList.remove('hidden');
+}
+
+function updateSettleDiff() {
+  const owed = parseFloat(document.getElementById('settle-owed-amount').value) || 0;
+  const actual = parseFloat(document.getElementById('settle-amount').value) || 0;
+  const diff = actual - owed;
+  const hint = document.getElementById('settle-diff-hint');
+  const payer = document.getElementById('settle-paidby').value;
+  const receiver = document.getElementById('settle-paidto').value;
+  if (Math.abs(diff) < 0.01) {
+    hint.textContent = 'Exact amount – no carry-forward';
+    hint.style.color = 'var(--success)';
+  } else if (diff > 0) {
+    hint.textContent = payer + ' overpaid by €' + diff.toFixed(2) + ' → credit carried forward';
+    hint.style.color = 'var(--success)';
+  } else {
+    hint.textContent = '€' + Math.abs(diff).toFixed(2) + ' underpaid → debt carried forward';
+    hint.style.color = 'var(--danger)';
+  }
 }
 
 function closeSettle() {
@@ -661,14 +713,22 @@ async function confirmSettle() {
   const paidBy = document.getElementById('settle-paidby').value;
   const paidTo = document.getElementById('settle-paidto').value;
   const amount = parseFloat(document.getElementById('settle-amount').value);
+  const owedAmount = parseFloat(document.getElementById('settle-owed-amount').value) || amount;
   const date = document.getElementById('settle-date').value;
   const time = document.getElementById('settle-time').value;
   const note = document.getElementById('settle-note').value.trim();
 
   if (!date || isNaN(amount) || amount <= 0) { alert('Please check amount and date.'); return; }
 
+  // carry_forward: positive = payer overpaid (credit for them), negative = underpaid (debt for them)
+  // from payer's perspective: they sent 'amount', they owed 'owedAmount'
+  // overpaid means partner now owes them the diff → net positive for payer
+  const carryForward = parseFloat((amount - owedAmount).toFixed(2));
+
   const { error } = await sb.from('settlements').insert([{
-    paid_by: paidBy, paid_to: paidTo, amount, date, time, note, month_key: mk
+    paid_by: paidBy, paid_to: paidTo,
+    amount, owed_amount: owedAmount, carry_forward: carryForward,
+    date, time, note, month_key: mk
   }]);
   if (error) { alert('Failed to save: ' + error.message); return; }
   closeSettle();

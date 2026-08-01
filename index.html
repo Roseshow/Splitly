@@ -206,8 +206,10 @@
       <input id="settle-paidby" class="field-input" type="text" readonly style="opacity:.6" />
       <label class="field-label" style="margin-top:10px">Paid to</label>
       <input id="settle-paidto" class="field-input" type="text" readonly style="opacity:.6" />
-      <label class="field-label" style="margin-top:10px">Amount (&#8364;)</label>
+      <input type="hidden" id="settle-owed-amount" />
+      <label class="field-label" style="margin-top:10px">Amount actually sent (&#8364;)</label>
       <input id="settle-amount" class="field-input" type="number" step="0.01" min="0" />
+      <p id="settle-diff-hint" style="font-size:12px;margin-top:5px;min-height:16px"></p>
       <div class="two-col" style="gap:8px;margin-top:10px">
         <div>
           <label class="field-label">Date</label>
