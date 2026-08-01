@@ -707,7 +707,7 @@ function openSettle(monthKey, net) {
   document.getElementById('settle-time').value = new Date().toTimeString().slice(0,5);
   document.getElementById('settle-note').value = '';
   document.getElementById('settle-title').textContent = 'Settle up — ' + formatMonth(monthKey);
-  document.getElementById('settle-summary').textContent = payer + ' pays ' + receiver + ' €' + amount;
+  document.getElementById('settle-summary').textContent = payer + ' owes ' + receiver + ' €' + amount + ' (month balance)';
   // live diff hint
   updateSettleDiff();
   document.getElementById('settle-amount').oninput = updateSettleDiff;
@@ -748,18 +748,26 @@ function editSettle(id, ev) {
   if (ev) ev.stopPropagation();
   const s = settlements.find(x => x.id === id);
   if (!s) return;
-  // Re-open settle modal pre-filled with existing data for editing
+
+  // Recalculate the true owed amount from actual month expenses
+  // so editing always reflects the real balance, not a stale stored value
+  const mList = expenses.filter(e => monthKey(e.date) === s.month_key);
+  const mb = calcBalance(mList);
+  const trueOwed = Math.abs(mb.net);
+  const payer = mb.net < 0 ? (cfg.me || '') : (cfg.partner || '');
+  const receiver = mb.net < 0 ? (cfg.partner || '') : (cfg.me || '');
+
   document.getElementById('settle-month-key').value = s.month_key;
-  document.getElementById('settle-owed-amount').value = parseFloat(s.owed_amount || s.amount).toFixed(2);
-  document.getElementById('settle-paidby').value = s.paid_by;
-  document.getElementById('settle-paidto').value = s.paid_to;
+  document.getElementById('settle-owed-amount').value = trueOwed.toFixed(2);
+  document.getElementById('settle-paidby').value = payer;
+  document.getElementById('settle-paidto').value = receiver;
   document.getElementById('settle-amount').value = parseFloat(s.amount).toFixed(2);
   document.getElementById('settle-date').value = s.date || '';
   document.getElementById('settle-time').value = s.time || '';
   document.getElementById('settle-note').value = s.note || '';
   document.getElementById('settle-title').textContent = 'Edit settlement — ' + formatMonth(s.month_key);
   document.getElementById('settle-summary').textContent =
-    s.paid_by + ' pays ' + s.paid_to + ' €' + parseFloat(s.owed_amount || s.amount).toFixed(2);
+    payer + ' owes ' + receiver + ' €' + trueOwed.toFixed(2) + ' (month balance)';
   document.getElementById('settle-edit-id').value = id;
   updateSettleDiff();
   document.getElementById('settle-amount').oninput = updateSettleDiff;
