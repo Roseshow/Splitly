@@ -566,17 +566,17 @@ function renderSplit() {
   // Sum carry-forwards from all settlements
   // carry_forward > 0: payer overpaid → receiver (partner) owes payer → adds to net positively for payer
   // carry_forward < 0: payer underpaid → payer still owes receiver → subtracts from net
+  // carryNet: positive = partner net-owes me more, negative = I net-owe partner more
   let carryNet = 0;
   settlements.forEach(s => {
     const cf = parseFloat(s.carry_forward) || 0;
-    if (cf === 0) return;
-    // Who is "me" in this carry-forward?
+    if (Math.abs(cf) < 0.01) return;
     if (s.paid_by === me) {
-      // me was the payer: positive cf = I overpaid → partner owes me more
-      carryNet += cf;
-    } else {
-      // partner was the payer: positive cf = partner overpaid → I owe them more
+      // I was the payer. cf > 0 means I still owe partner → my debt increases → carryNet negative
       carryNet -= cf;
+    } else {
+      // Partner was the payer. cf > 0 means partner still owes me → my credit increases → carryNet positive
+      carryNet += cf;
     }
   });
   const totalNet = parseFloat((bal.net + carryNet).toFixed(2));
@@ -623,18 +623,20 @@ function renderSplit() {
       const cf = parseFloat(settlement.carry_forward) || 0;
       const remainder = -cf; // positive = still owed, negative = credit
 
-      let remainderText = 'Exact transfer – nothing carried forward';
+      // cf = remaining debt: positive = payer still owes, negative = payer overpaid
+      let remainderText = '';
       let remainderColor = 'var(--ink3)';
-      if (Math.abs(cf) >= 0.01) {
-        if (cf > 0) {
-          // payer overpaid → receiver owes payer the diff → reduces future balance
-          remainderText = settlement.paid_by + ' overpaid €' + cf.toFixed(2) + ' → credit next month';
-          remainderColor = 'var(--success)';
-        } else {
-          // payer underpaid → payer still owes the diff → adds to future balance
-          remainderText = '€' + Math.abs(cf).toFixed(2) + ' still owed → added to next month';
-          remainderColor = 'var(--danger)';
-        }
+      if (Math.abs(cf) < 0.01) {
+        remainderText = '✓ Fully settled – nothing carried forward';
+        remainderColor = 'var(--ink3)';
+      } else if (cf > 0) {
+        // payer underpaid — they still owe cf to receiver
+        remainderText = settlement.paid_by + ' still owes ' + settlement.paid_to + ' €' + cf.toFixed(2) + ' → carried to next month';
+        remainderColor = 'var(--danger)';
+      } else {
+        // payer overpaid — receiver owes cf back to payer
+        remainderText = settlement.paid_to + ' owes ' + settlement.paid_by + ' €' + Math.abs(cf).toFixed(2) + ' back → credit next month';
+        remainderColor = 'var(--success)';
       }
 
       detailHtml =
@@ -716,19 +718,21 @@ function openSettle(monthKey, net) {
 function updateSettleDiff() {
   const owed = parseFloat(document.getElementById('settle-owed-amount').value) || 0;
   const actual = parseFloat(document.getElementById('settle-amount').value) || 0;
-  const diff = actual - owed;
+  const remaining = parseFloat((owed - actual).toFixed(2)); // positive = still owed, negative = overpaid
   const hint = document.getElementById('settle-diff-hint');
   const payer = document.getElementById('settle-paidby').value;
   const receiver = document.getElementById('settle-paidto').value;
-  if (Math.abs(diff) < 0.01) {
-    hint.textContent = 'Exact amount – no carry-forward';
+  if (Math.abs(remaining) < 0.01) {
+    hint.textContent = '✓ Fully settled – nothing carried forward';
     hint.style.color = 'var(--success)';
-  } else if (diff > 0) {
-    hint.textContent = payer + ' overpaid by €' + diff.toFixed(2) + ' → credit carried forward';
-    hint.style.color = 'var(--success)';
-  } else {
-    hint.textContent = '€' + Math.abs(diff).toFixed(2) + ' underpaid → debt carried forward';
+  } else if (remaining > 0) {
+    // payer underpaid — they still owe the remainder
+    hint.textContent = payer + ' still owes ' + receiver + ' €' + remaining.toFixed(2) + ' → carried to next month';
     hint.style.color = 'var(--danger)';
+  } else {
+    // payer overpaid — receiver owes them back
+    hint.textContent = receiver + ' owes ' + payer + ' €' + Math.abs(remaining).toFixed(2) + ' back → credit next month';
+    hint.style.color = 'var(--success)';
   }
 }
 
@@ -774,10 +778,8 @@ async function confirmSettle() {
 
   if (!date || isNaN(amount) || amount <= 0) { alert('Please check amount and date.'); return; }
 
-  // carry_forward: positive = payer overpaid (credit for them), negative = underpaid (debt for them)
-  // from payer's perspective: they sent 'amount', they owed 'owedAmount'
-  // overpaid means partner now owes them the diff → net positive for payer
-  const carryForward = parseFloat((amount - owedAmount).toFixed(2));
+  // carry_forward = remaining debt: positive = payer still owes, negative = overpaid
+  const carryForward = parseFloat((owedAmount - amount).toFixed(2));
 
   const editId = parseInt(document.getElementById('settle-edit-id').value) || 0;
   let error;
