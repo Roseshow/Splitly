@@ -377,3 +377,25 @@ html, body {
   padding: 12px 14px; font-size: 14px; font-weight: 500;
   color: var(--accent); text-align: center;
 }
+
+/* ── SETTLE DETAIL ROWS ── */
+.month-status-badge {
+  font-size: 12px; font-weight: 600; padding: 4px 10px;
+  border-radius: 20px; white-space: nowrap; flex-shrink: 0;
+}
+.badge-settled { background: var(--success-light); color: var(--success); }
+.badge-open { background: var(--danger-light); color: var(--danger); }
+.settle-detail-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 12px; padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.settle-detail-row:last-of-type { border-bottom: none; }
+.settle-detail-lbl { color: var(--ink2); flex-shrink: 0; font-size: 12px; }
+.settle-detail-val { text-align: right; font-weight: 500; }
+.btn-settle-edit {
+  background: var(--surface2) !important;
+  color: var(--ink) !important;
+  font-weight: 500 !important;
+}

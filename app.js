@@ -606,40 +606,71 @@ function renderSplit() {
     const total = mList.reduce((s, e) => s + parseFloat(e.amount), 0);
     const settlement = getMonthSettlement(m);
 
-    let balClass, balText, actionHtml;
+    // Who owes who this month (from expenses alone)
+    const oweLabel = Math.abs(mb.net) < 0.01 ? 'Even'
+      : (mb.net > 0 ? partner + ' owes ' + me : me + ' owes ' + partner)
+        + ' €' + Math.abs(mb.net).toFixed(2);
+
+    let detailHtml = '';
+    let badgeClass = 'open';
+    let badgeText = Math.abs(mb.net) < 0.01 ? 'Even' : 'Unsettled';
+
     if (settlement) {
-      balClass = 'even';
-      balText = 'Settled ✓';
-      const cf = parseFloat(settlement.carry_forward) || 0;
-      const owed = parseFloat(settlement.owed_amount) || parseFloat(settlement.amount);
+      badgeClass = 'settled';
+      badgeText = 'Settled ✓';
+      const owed = parseFloat(settlement.owed_amount || settlement.amount);
       const actual = parseFloat(settlement.amount);
-      let cfText = '';
+      const cf = parseFloat(settlement.carry_forward) || 0;
+      const remainder = -cf; // positive = still owed, negative = credit
+
+      let remainderText = 'Exact transfer – nothing carried forward';
+      let remainderColor = 'var(--ink3)';
       if (Math.abs(cf) >= 0.01) {
-        if (cf > 0) cfText = ' · €' + cf.toFixed(2) + ' overpaid → carried forward';
-        else cfText = ' · €' + Math.abs(cf).toFixed(2) + ' underpaid → carried forward';
+        if (cf > 0) {
+          // payer overpaid → receiver owes payer the diff → reduces future balance
+          remainderText = settlement.paid_by + ' overpaid €' + cf.toFixed(2) + ' → credit next month';
+          remainderColor = 'var(--success)';
+        } else {
+          // payer underpaid → payer still owes the diff → adds to future balance
+          remainderText = '€' + Math.abs(cf).toFixed(2) + ' still owed → added to next month';
+          remainderColor = 'var(--danger)';
+        }
       }
-      actionHtml = '<div class="settle-badge">Settled ✓<br>' +
-        '<span style="font-size:11px;opacity:.8">' +
-        settlement.paid_by + ' paid €' + actual.toFixed(2) +
-        (Math.abs(cf) >= 0.01 ? ' (owed €' + owed.toFixed(2) + ')' : '') +
-        ' on ' + settlement.date + (settlement.time ? ' ' + settlement.time : '') +
-        cfText + '</span></div>';
-    } else if (Math.abs(mb.net) < 0.01) {
-      balClass = 'even'; balText = 'Even';
-      actionHtml = '';
-    } else {
-      if (mb.net > 0) { balClass = 'receive'; balText = partner + ' owes €' + mb.net.toFixed(2); }
-      else { balClass = 'owe'; balText = me + ' owes €' + Math.abs(mb.net).toFixed(2); }
-      actionHtml = '<button class="btn-settle" onclick="openSettle(&quot;' + m + '&quot;,' + mb.net.toFixed(2) + ')">Settle up</button>';
+
+      detailHtml =
+        '<div class="settle-detail-row">' +
+          '<span class="settle-detail-lbl">Month balance</span>' +
+          '<span class="settle-detail-val">' + oweLabel + '</span>' +
+        '</div>' +
+        '<div class="settle-detail-row">' +
+          '<span class="settle-detail-lbl">Transfer</span>' +
+          '<span class="settle-detail-val">' + settlement.paid_by + ' → ' + settlement.paid_to + ' €' + actual.toFixed(2) +
+            (settlement.date ? ' on ' + settlement.date + (settlement.time ? ' ' + settlement.time : '') : '') + '</span>' +
+        '</div>' +
+        '<div class="settle-detail-row">' +
+          '<span class="settle-detail-lbl">Carry-forward</span>' +
+          '<span class="settle-detail-val" style="color:' + remainderColor + '">' + remainderText + '</span>' +
+        '</div>' +
+        (settlement.note ? '<div class="settle-detail-row"><span class="settle-detail-lbl">Note</span><span class="settle-detail-val">' + settlement.note + '</span></div>' : '') +
+        '<div style="margin-top:10px;display:flex;gap:8px">' +
+          '<button class="btn-settle btn-settle-edit" onclick="editSettle(' + settlement.id + ',event)">Edit settlement</button>' +
+        '</div>';
+    } else if (Math.abs(mb.net) >= 0.01) {
+      detailHtml =
+        '<div class="settle-detail-row">' +
+          '<span class="settle-detail-lbl">Month balance</span>' +
+          '<span class="settle-detail-val">' + oweLabel + '</span>' +
+        '</div>' +
+        '<button class="btn-settle" onclick="openSettle(&quot;' + m + '&quot;,' + mb.net.toFixed(2) + ')">Settle up this month</button>';
     }
 
     return '<div class="month-card-wrap">' +
       '<div class="month-card">' +
         '<div><div class="month-name">' + formatMonth(m) + '</div>' +
         '<div class="month-meta">' + mList.length + ' expenses · €' + total.toFixed(2) + '</div></div>' +
-        '<div class="month-bal ' + balClass + '">' + balText + '</div>' +
+        '<span class="month-status-badge badge-' + badgeClass + '">' + badgeText + '</span>' +
       '</div>' +
-      (actionHtml ? '<div class="month-action">' + actionHtml + '</div>' : '') +
+      (detailHtml ? '<div class="month-action">' + detailHtml + '</div>' : '') +
     '</div>';
   }).join('');
 
@@ -678,6 +709,7 @@ function openSettle(monthKey, net) {
   // live diff hint
   updateSettleDiff();
   document.getElementById('settle-amount').oninput = updateSettleDiff;
+  document.getElementById('settle-edit-id').value = '';
   document.getElementById('settle-modal').classList.remove('hidden');
 }
 
@@ -708,6 +740,28 @@ function closeSettleOutside(ev) {
   if (ev.target === document.getElementById('settle-modal')) closeSettle();
 }
 
+function editSettle(id, ev) {
+  if (ev) ev.stopPropagation();
+  const s = settlements.find(x => x.id === id);
+  if (!s) return;
+  // Re-open settle modal pre-filled with existing data for editing
+  document.getElementById('settle-month-key').value = s.month_key;
+  document.getElementById('settle-owed-amount').value = parseFloat(s.owed_amount || s.amount).toFixed(2);
+  document.getElementById('settle-paidby').value = s.paid_by;
+  document.getElementById('settle-paidto').value = s.paid_to;
+  document.getElementById('settle-amount').value = parseFloat(s.amount).toFixed(2);
+  document.getElementById('settle-date').value = s.date || '';
+  document.getElementById('settle-time').value = s.time || '';
+  document.getElementById('settle-note').value = s.note || '';
+  document.getElementById('settle-title').textContent = 'Edit settlement — ' + formatMonth(s.month_key);
+  document.getElementById('settle-summary').textContent =
+    s.paid_by + ' pays ' + s.paid_to + ' €' + parseFloat(s.owed_amount || s.amount).toFixed(2);
+  document.getElementById('settle-edit-id').value = id;
+  updateSettleDiff();
+  document.getElementById('settle-amount').oninput = updateSettleDiff;
+  document.getElementById('settle-modal').classList.remove('hidden');
+}
+
 async function confirmSettle() {
   const mk = document.getElementById('settle-month-key').value;
   const paidBy = document.getElementById('settle-paidby').value;
@@ -725,12 +779,23 @@ async function confirmSettle() {
   // overpaid means partner now owes them the diff → net positive for payer
   const carryForward = parseFloat((amount - owedAmount).toFixed(2));
 
-  const { error } = await sb.from('settlements').insert([{
-    paid_by: paidBy, paid_to: paidTo,
-    amount, owed_amount: owedAmount, carry_forward: carryForward,
-    date, time, note, month_key: mk
-  }]);
+  const editId = parseInt(document.getElementById('settle-edit-id').value) || 0;
+  let error;
+  if (editId) {
+    ({ error } = await sb.from('settlements').update({
+      paid_by: paidBy, paid_to: paidTo,
+      amount, owed_amount: owedAmount, carry_forward: carryForward,
+      date, time, note
+    }).eq('id', editId));
+  } else {
+    ({ error } = await sb.from('settlements').insert([{
+      paid_by: paidBy, paid_to: paidTo,
+      amount, owed_amount: owedAmount, carry_forward: carryForward,
+      date, time, note, month_key: mk
+    }]));
+  }
   if (error) { alert('Failed to save: ' + error.message); return; }
+  document.getElementById('settle-edit-id').value = '';
   closeSettle();
   await loadExpenses();
 }
