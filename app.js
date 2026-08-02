@@ -618,26 +618,36 @@ function renderSplit() {
     if (settlement) {
       badgeClass = 'settled';
       badgeText = 'Settled ✓';
-      const owed = parseFloat(settlement.owed_amount || settlement.amount);
       const actual = parseFloat(settlement.amount);
-      const cf = parseFloat(settlement.carry_forward) || 0;
-      const remainder = -cf; // positive = still owed, negative = credit
 
-      // cf = remaining debt: positive = payer still owes, negative = payer overpaid
+      // Always compute carry-forward LIVE from current expenses
+      // so adding/editing expenses in a settled month auto-updates everything
+      const liveOwed = Math.abs(mb.net); // what expenses say is owed this month right now
+      const liveCf = parseFloat((liveOwed - actual).toFixed(2)); // positive=underpaid, negative=overpaid
+
+      // Update stored carry_forward in background if it has drifted (expenses changed)
+      if (Math.abs(liveCf - (parseFloat(settlement.carry_forward) || 0)) >= 0.01) {
+        sb.from('settlements').update({ carry_forward: liveCf, owed_amount: liveOwed }).eq('id', settlement.id)
+          .then(() => { settlement.carry_forward = liveCf; settlement.owed_amount = liveOwed; });
+      }
+
       let remainderText = '';
       let remainderColor = 'var(--ink3)';
-      if (Math.abs(cf) < 0.01) {
+      if (Math.abs(liveCf) < 0.01) {
         remainderText = '✓ Fully settled – nothing carried forward';
         remainderColor = 'var(--ink3)';
-      } else if (cf > 0) {
-        // payer underpaid — they still owe cf to receiver
-        remainderText = settlement.paid_by + ' still owes ' + settlement.paid_to + ' €' + cf.toFixed(2) + ' → carried to next month';
+      } else if (liveCf > 0) {
+        remainderText = settlement.paid_by + ' still owes ' + settlement.paid_to +
+          ' €' + liveCf.toFixed(2) + ' → carried to next month';
         remainderColor = 'var(--danger)';
       } else {
-        // payer overpaid — receiver owes cf back to payer
-        remainderText = settlement.paid_to + ' owes ' + settlement.paid_by + ' €' + Math.abs(cf).toFixed(2) + ' back → credit next month';
+        remainderText = settlement.paid_to + ' owes ' + settlement.paid_by +
+          ' €' + Math.abs(liveCf).toFixed(2) + ' back → credit next month';
         remainderColor = 'var(--success)';
       }
+
+      // For hero carryNet: keep settlement object in sync so hero recalculates correctly
+      settlement.carry_forward = liveCf;
 
       detailHtml =
         '<div class="settle-detail-row">' +
@@ -646,16 +656,20 @@ function renderSplit() {
         '</div>' +
         '<div class="settle-detail-row">' +
           '<span class="settle-detail-lbl">Transfer</span>' +
-          '<span class="settle-detail-val">' + settlement.paid_by + ' → ' + settlement.paid_to + ' €' + actual.toFixed(2) +
-            (settlement.date ? ' on ' + settlement.date + (settlement.time ? ' ' + settlement.time : '') : '') + '</span>' +
+          '<span class="settle-detail-val">' + settlement.paid_by + ' → ' + settlement.paid_to +
+            ' €' + actual.toFixed(2) +
+            (settlement.date ? ' on ' + settlement.date + (settlement.time ? ' ' + settlement.time : '') : '') +
+          '</span>' +
         '</div>' +
         '<div class="settle-detail-row">' +
           '<span class="settle-detail-lbl">Carry-forward</span>' +
           '<span class="settle-detail-val" style="color:' + remainderColor + '">' + remainderText + '</span>' +
         '</div>' +
-        (settlement.note ? '<div class="settle-detail-row"><span class="settle-detail-lbl">Note</span><span class="settle-detail-val">' + settlement.note + '</span></div>' : '') +
+        (settlement.note ? '<div class="settle-detail-row"><span class="settle-detail-lbl">Note</span>' +
+          '<span class="settle-detail-val">' + settlement.note + '</span></div>' : '') +
         '<div style="margin-top:10px;display:flex;gap:8px">' +
-          '<button class="btn-settle btn-settle-edit" onclick="editSettle(' + settlement.id + ',event)">Edit settlement</button>' +
+          '<button class="btn-settle btn-settle-edit" onclick="editSettle(' + settlement.id + ',event)">Edit</button>' +
+          '<button class="btn-settle btn-settle-delete" onclick="deleteSettle(' + settlement.id + ',event)">Delete</button>' +
         '</div>';
     } else if (Math.abs(mb.net) >= 0.01) {
       detailHtml =
@@ -742,6 +756,15 @@ function closeSettle() {
 
 function closeSettleOutside(ev) {
   if (ev.target === document.getElementById('settle-modal')) closeSettle();
+}
+
+async function deleteSettle(id, ev) {
+  if (ev) ev.stopPropagation();
+  if (!confirm('Delete this settlement?')) return;
+  if (!confirm('Are you sure? This will remove the settlement record and reopen this month as unsettled.')) return;
+  const { error } = await sb.from('settlements').delete().eq('id', id);
+  if (error) { alert('Failed to delete: ' + error.message); return; }
+  await loadExpenses();
 }
 
 function editSettle(id, ev) {

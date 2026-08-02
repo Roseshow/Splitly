@@ -399,3 +399,9 @@ html, body {
   color: var(--ink) !important;
   font-weight: 500 !important;
 }
+
+.btn-settle-delete {
+  background: var(--danger-light) !important;
+  color: var(--danger) !important;
+  font-weight: 500 !important;
+}
